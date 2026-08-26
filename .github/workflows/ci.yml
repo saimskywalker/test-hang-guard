@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - run: dart test
+
+      # The real contract is the exit code, and nothing in `dart test` starts
+      # the process, so nothing in `dart test` can check it. Run the CLI against
+      # a tree that is known to hang and one that is known to be clean.
+      - name: Exit codes hold end to end
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/hanging /tmp/clean
+
+          cat > /tmp/hanging/a_test.dart <<'DART'
+          void main() {
+            testWidgets('hangs', (tester) async {
+              await tester.runAsync(() async {
+                await audioPlayer.dispose();
+              });
+            });
+          }
+          DART
+
+          cat > /tmp/clean/a_test.dart <<'DART'
+          void main() {
+            testWidgets('is fine', (tester) async {
+              await tester.pumpWidget(const SizedBox());
+              unawaited(player.dispose());
+              await tester.pump();
+            });
+          }
+          DART
+
+          expect_exit() {
+            local want="$1"; shift
+            dart run bin/test_hang_guard.dart "$@"
+            local got=$?
+            if [ "$got" -ne "$want" ]; then
+              echo "::error::test_hang_guard $* exited $got, wanted $want"
+              exit 1
+            fi
+          }
+
+          expect_exit 0 /tmp/clean
+          expect_exit 1 /tmp/hanging
+          expect_exit 2 /tmp/does-not-exist
