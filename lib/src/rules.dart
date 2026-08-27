@@ -64,12 +64,50 @@ class HangRules {
     List<String>? asyncCalls,
     List<String>? asyncSymbols,
     List<String>? testFunctions,
-    this.ignoreMarker = defaultIgnoreMarker,
-  })  : teardownReceivers = teardownReceivers ?? defaultTeardownReceivers,
-        teardownMethods = teardownMethods ?? defaultTeardownMethods,
-        asyncCalls = asyncCalls ?? defaultAsyncCalls,
-        asyncSymbols = asyncSymbols ?? const <String>[],
-        testFunctions = testFunctions ?? defaultTestFunctions;
+    String ignoreMarker = defaultIgnoreMarker,
+  })  : ignoreMarker = ignoreMarker.trim(),
+        teardownReceivers =
+            _patterns(teardownReceivers) ?? defaultTeardownReceivers,
+        teardownMethods = _patterns(teardownMethods) ?? defaultTeardownMethods,
+        asyncCalls = _patterns(asyncCalls) ?? defaultAsyncCalls,
+        asyncSymbols = _patterns(asyncSymbols) ?? const <String>[],
+        testFunctions = _patterns(testFunctions) ?? defaultTestFunctions {
+    // Every string contains the empty string, so a blank marker makes
+    // `line.contains(ignoreMarker)` true on every line: the scan suppresses
+    // every finding and prints "no hang patterns found". A gate that reports
+    // clean because it was switched off is the one failure this tool exists
+    // to prevent, so refuse the value rather than quietly substituting the
+    // default -- silently ignoring what the caller asked for is its own
+    // surprise.
+    if (this.ignoreMarker.isEmpty) {
+      throw ArgumentError.value(
+        ignoreMarker,
+        'ignoreMarker',
+        'must not be blank: every line contains the empty string, so this '
+            'would suppress every finding and report a clean scan',
+      );
+    }
+  }
+
+  /// Trims each supplied pattern and drops the blank ones, keeping `null`
+  /// (meaning "use the default") distinct from an emptied list.
+  ///
+  /// Turning a rule off is documented as passing its option empty, but the
+  /// command line cannot deliver an empty list: `args` parses `--async-call=`
+  /// as `['']`. That blank entry used to reach the alternation, where
+  /// `\b()\s*\(` matches ANY call — so the option that promised to disable
+  /// the rule instead flagged every awaited call in the file, `await
+  /// tester.pump()` among them. Dropping blanks here makes the documented
+  /// behaviour reachable, at the one place every list arrives.
+  ///
+  /// Trimming is the same normalisation seen from the other side: a value
+  /// padded by a shell or a comma-separated list — `--async-call=a, b` —
+  /// yields `' b'`, which no `\b`-anchored pattern can ever match, so it
+  /// would sit in the list looking configured and catch nothing.
+  static List<String>? _patterns(List<String>? given) => given
+      ?.map((pattern) => pattern.trim())
+      .where((pattern) => pattern.isNotEmpty)
+      .toList(growable: false);
 
   /// Name fragments of receivers whose teardown may not be awaited.
   final List<String> teardownReceivers;

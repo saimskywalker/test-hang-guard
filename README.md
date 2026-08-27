@@ -45,9 +45,15 @@ it.
 
 ## Install
 
+Not on pub.dev yet, so it installs from git.
+
 ```bash
-dart pub global activate test_hang_guard
+dart pub global activate --source git https://github.com/saimskywalker/test-hang-guard.git
 ```
+
+That puts the executable in `$HOME/.pub-cache/bin`. If that is not on your
+`PATH`, either add it or call the tool through pub — `dart pub global run
+test_hang_guard` — which needs no `PATH` change.
 
 Then, from your Flutter package root:
 
@@ -58,10 +64,20 @@ test_hang_guard
 Or without installing it globally — add it as a dev dependency and run it from
 the package:
 
+```yaml
+dev_dependencies:
+  test_hang_guard:
+    git: https://github.com/saimskywalker/test-hang-guard.git
+```
+
 ```bash
-dart pub add --dev test_hang_guard
+dart pub get
 dart run test_hang_guard
 ```
+
+Once it is published, `dart pub global activate test_hang_guard` and
+`dart pub add --dev test_hang_guard` will be the shorter forms of the same two
+routes.
 
 ## Usage
 
@@ -72,20 +88,71 @@ test_hang_guard test/features/player       # one directory
 test_hang_guard test/player_test.dart      # one file
 ```
 
-Put it **before** `flutter test` in CI, not after. The point is to fail in two
-seconds instead of hanging for an hour, and that only works if it runs first.
+## In CI
+
+This is what the tool is for, so it is worth wiring properly. Put it **before**
+`flutter test`, never after: the point is to fail in two seconds instead of
+hanging for an hour, and that only works if it runs first. After the suite has
+wedged, there is nothing left to save.
+
+A whole GitHub Actions job, using the dev dependency from above:
 
 ```yaml
-- run: dart run test_hang_guard test
-- run: flutter test
+name: test
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+
+      # Before the suite, not after. Seconds, and it names the file and line.
+      - run: dart run test_hang_guard test
+
+      - run: flutter test
+```
+
+Without the dev dependency, install it inside the job instead — this needs no
+change to the package's `pubspec.yaml`:
+
+```yaml
+      - run: dart pub global activate --source git https://github.com/saimskywalker/test-hang-guard.git
+      - run: dart pub global run test_hang_guard test
+```
+
+Two things to know before the step goes red on you:
+
+- **Exit code 2 is not a finding.** It means the scan could not run, and by far
+  the most common cause is naming a path the package does not have —
+  `test_hang_guard test integration_test` in a package with no
+  `integration_test/` exits 2 without scanning anything. Name only the
+  directories that exist.
+- **Nothing here needs a Flutter SDK.** The scan reads source text, so on a
+  `dart`-only runner the `dart pub global activate` form above works on its own.
+
+GitLab CI, or any runner that speaks shell:
+
+```yaml
+test:
+  script:
+    - flutter pub get
+    - dart run test_hang_guard test
+    - flutter test
 ```
 
 ## The rules
 
-Two patterns, both scoped to the inside of a `testWidgets` body. Scoping is
-done by tracking brace depth through the file, not by matching lines, because
-"is this `await` inside a `runAsync` closure" is a question no line-by-line
-regex can answer.
+Two patterns, each scoped to a block rather than to a line: the first to a
+`tester.runAsync(...)` closure, the second to a `testWidgets` body outside one.
+Scoping is done by tracking brace depth through the file, not by matching
+lines, because "is this `await` inside a `runAsync` closure" is a question no
+line-by-line regex can answer.
 
 ### `awaited-teardown-in-run-async`
 
@@ -164,7 +231,8 @@ dangerous is a gate people switch off, and a switched-off gate catches nothing.
 
 Every list can be replaced from the command line. **Passing an option replaces
 that default list rather than adding to it**, so a rule can be narrowed as
-easily as widened, and passing it empty turns the rule off.
+easily as widened, and passing it empty — `--async-call=''` — turns the rule
+off.
 
 | Option | What it sets |
 |---|---|

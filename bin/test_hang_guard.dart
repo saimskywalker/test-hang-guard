@@ -81,14 +81,23 @@ void main(List<String> args) {
   List<String>? given(String name) =>
       argv.wasParsed(name) ? argv.multiOption(name) : null;
 
-  final rules = HangRules(
-    teardownReceivers: given('teardown-receiver'),
-    teardownMethods: given('teardown-method'),
-    asyncCalls: given('async-call'),
-    asyncSymbols: given('async-symbol'),
-    testFunctions: given('test-function'),
-    ignoreMarker: argv.option('ignore-marker') ?? defaultIgnoreMarker,
-  );
+  // HangRules rejects a blank ignore marker. Surfacing that as bad usage
+  // rather than an unhandled ArgumentError keeps a mistyped flag looking like
+  // a mistyped flag, and keeps the exit code inside the documented contract.
+  final HangRules rules;
+  try {
+    rules = HangRules(
+      teardownReceivers: given('teardown-receiver'),
+      teardownMethods: given('teardown-method'),
+      asyncCalls: given('async-call'),
+      asyncSymbols: given('async-symbol'),
+      testFunctions: given('test-function'),
+      ignoreMarker: argv.option('ignore-marker') ?? defaultIgnoreMarker,
+    );
+  } on ArgumentError catch (e) {
+    stderr.writeln('test_hang_guard: --ignore-marker ${e.message}');
+    exit(exitUsage);
+  }
 
   exit(
     run(

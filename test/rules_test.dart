@@ -5,6 +5,30 @@ List<Violation> scan(String source, HangRules rules) =>
     scanLines('fixture.dart', source.split('\n'), rules);
 
 void main() {
+  test('a blank ignore marker is refused, not quietly defaulted', () {
+    // `line.contains('')` is true for every line, so a blank marker turns the
+    // scan into a no-op that still prints "no hang patterns found" -- a gate
+    // reporting clean because it was switched off.
+    expect(() => HangRules(ignoreMarker: ''), throwsArgumentError);
+    expect(() => HangRules(ignoreMarker: '   '), throwsArgumentError);
+    expect(() => HangRules(ignoreMarker: '\t\n '), throwsArgumentError);
+  });
+
+  test('a padded ignore marker is trimmed and still suppresses', () {
+    // Same normalisation the pattern lists get: a value padded by a shell or
+    // a comma-separated list would otherwise sit there looking configured
+    // while matching nothing.
+    final rules = HangRules(ignoreMarker: '  no-hang-check  ');
+    expect(rules.ignoreMarker, defaultIgnoreMarker);
+    expect(
+      scan(
+        "await audioPlayer.dispose(); // no-hang-check: fake player",
+        rules,
+      ),
+      isEmpty,
+    );
+  });
+
   test('defaults are what the constructor falls back to', () {
     final rules = HangRules();
     expect(rules.teardownReceivers, defaultTeardownReceivers);
@@ -79,6 +103,50 @@ testWidgets('t', (tester) async {
 
   test('emptying the receivers disables the teardown rule', () {
     expect(HangRules(teardownReceivers: []).teardownCall, isNull);
+  });
+
+  // The CLI is the only way most people set these lists, and `--async-call=`
+  // does not reach here as `[]` — args parses it as `['']`. That one empty
+  // string used to survive into the pattern alternation, where `\b()\s*\(`
+  // matches ANY call: the option documented as "turns the rule off" turned it
+  // on for every line in the file, `await tester.pump()` included.
+  test('an option emptied on the command line disables its rule', () {
+    final rules = HangRules(asyncCalls: [''], asyncSymbols: ['']);
+    expect(rules.asyncCalls, isEmpty);
+    expect(rules.realAsyncCall, isNull);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await tester.pump();
+  await getTemporaryDirectory();
+});
+''';
+    expect(scan(fixture, rules), isEmpty);
+  });
+
+  test('an emptied receiver list does not fall back to matching everything',
+      () {
+    final rules = HangRules(teardownReceivers: ['']);
+    expect(rules.teardownReceivers, isEmpty);
+    expect(rules.teardownCall, isNull);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await tester.runAsync(() async {
+    await audioPlayer.dispose();
+  });
+});
+''';
+    expect(scan(fixture, rules), isEmpty);
+  });
+
+  test('a padded pattern still matches, and a blank one is dropped', () {
+    final rules = HangRules(asyncCalls: [' loadFromDisk ', '   ']);
+    expect(rules.asyncCalls, ['loadFromDisk']);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await loadFromDisk();
+});
+''';
+    expect(scan(fixture, rules).map((v) => v.line), [2]);
   });
 
   test('a custom test function opens a test body', () {
