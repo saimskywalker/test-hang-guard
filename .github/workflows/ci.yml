@@ -63,3 +63,9 @@ jobs:
           expect_exit 0 /tmp/clean
           expect_exit 1 /tmp/hanging
           expect_exit 2 /tmp/does-not-exist
+
+          # Emptying a list turns its rule off. Only the process can prove it:
+          # `--async-call=` arrives from args as [''], not [], and that blank
+          # entry once matched every call in the file — so this same command
+          # used to flag `await tester.pump()` in the clean tree and exit 1.
+          expect_exit 0 --async-call= /tmp/clean

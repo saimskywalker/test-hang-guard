@@ -81,6 +81,50 @@ testWidgets('t', (tester) async {
     expect(HangRules(teardownReceivers: []).teardownCall, isNull);
   });
 
+  // The CLI is the only way most people set these lists, and `--async-call=`
+  // does not reach here as `[]` — args parses it as `['']`. That one empty
+  // string used to survive into the pattern alternation, where `\b()\s*\(`
+  // matches ANY call: the option documented as "turns the rule off" turned it
+  // on for every line in the file, `await tester.pump()` included.
+  test('an option emptied on the command line disables its rule', () {
+    final rules = HangRules(asyncCalls: [''], asyncSymbols: ['']);
+    expect(rules.asyncCalls, isEmpty);
+    expect(rules.realAsyncCall, isNull);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await tester.pump();
+  await getTemporaryDirectory();
+});
+''';
+    expect(scan(fixture, rules), isEmpty);
+  });
+
+  test('an emptied receiver list does not fall back to matching everything',
+      () {
+    final rules = HangRules(teardownReceivers: ['']);
+    expect(rules.teardownReceivers, isEmpty);
+    expect(rules.teardownCall, isNull);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await tester.runAsync(() async {
+    await audioPlayer.dispose();
+  });
+});
+''';
+    expect(scan(fixture, rules), isEmpty);
+  });
+
+  test('a padded pattern still matches, and a blank one is dropped', () {
+    final rules = HangRules(asyncCalls: [' loadFromDisk ', '   ']);
+    expect(rules.asyncCalls, ['loadFromDisk']);
+    const fixture = '''
+testWidgets('t', (tester) async {
+  await loadFromDisk();
+});
+''';
+    expect(scan(fixture, rules).map((v) => v.line), [2]);
+  });
+
   test('a custom test function opens a test body', () {
     final rules = HangRules(testFunctions: ['testWidgetsWithHarness']);
     expect(rules.opensTestBody('testWidgetsWithHarness('), isTrue);
