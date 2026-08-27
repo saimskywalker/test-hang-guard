@@ -64,13 +64,30 @@ class HangRules {
     List<String>? asyncCalls,
     List<String>? asyncSymbols,
     List<String>? testFunctions,
-    this.ignoreMarker = defaultIgnoreMarker,
-  })  : teardownReceivers =
+    String ignoreMarker = defaultIgnoreMarker,
+  })  : ignoreMarker = ignoreMarker.trim(),
+        teardownReceivers =
             _patterns(teardownReceivers) ?? defaultTeardownReceivers,
         teardownMethods = _patterns(teardownMethods) ?? defaultTeardownMethods,
         asyncCalls = _patterns(asyncCalls) ?? defaultAsyncCalls,
         asyncSymbols = _patterns(asyncSymbols) ?? const <String>[],
-        testFunctions = _patterns(testFunctions) ?? defaultTestFunctions;
+        testFunctions = _patterns(testFunctions) ?? defaultTestFunctions {
+    // Every string contains the empty string, so a blank marker makes
+    // `line.contains(ignoreMarker)` true on every line: the scan suppresses
+    // every finding and prints "no hang patterns found". A gate that reports
+    // clean because it was switched off is the one failure this tool exists
+    // to prevent, so refuse the value rather than quietly substituting the
+    // default -- silently ignoring what the caller asked for is its own
+    // surprise.
+    if (this.ignoreMarker.isEmpty) {
+      throw ArgumentError.value(
+        ignoreMarker,
+        'ignoreMarker',
+        'must not be blank: every line contains the empty string, so this '
+            'would suppress every finding and report a clean scan',
+      );
+    }
+  }
 
   /// Trims each supplied pattern and drops the blank ones, keeping `null`
   /// (meaning "use the default") distinct from an emptied list.
