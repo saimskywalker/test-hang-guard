@@ -27,7 +27,12 @@ jobs:
       # a tree that is known to hang and one that is known to be clean.
       - name: Exit codes hold end to end
         run: |
-          set -uo pipefail
+          # +e, explicitly. GitHub runs a `run:` step as `bash -e {0}`, and a
+          # non-zero exit is exactly what the assertions below are FOR — under
+          # -e the first `expect_exit 1` kills the shell before `$?` is ever
+          # read, and the step fails while reporting the exit code it wanted.
+          # Omitting -e from this line is not enough; it has to be turned off.
+          set +e -uo pipefail
           mkdir -p /tmp/hanging /tmp/clean
 
           cat > /tmp/hanging/a_test.dart <<'DART'
