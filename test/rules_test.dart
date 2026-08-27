@@ -5,6 +5,30 @@ List<Violation> scan(String source, HangRules rules) =>
     scanLines('fixture.dart', source.split('\n'), rules);
 
 void main() {
+  test('a blank ignore marker is refused, not quietly defaulted', () {
+    // `line.contains('')` is true for every line, so a blank marker turns the
+    // scan into a no-op that still prints "no hang patterns found" -- a gate
+    // reporting clean because it was switched off.
+    expect(() => HangRules(ignoreMarker: ''), throwsArgumentError);
+    expect(() => HangRules(ignoreMarker: '   '), throwsArgumentError);
+    expect(() => HangRules(ignoreMarker: '\t\n '), throwsArgumentError);
+  });
+
+  test('a padded ignore marker is trimmed and still suppresses', () {
+    // Same normalisation the pattern lists get: a value padded by a shell or
+    // a comma-separated list would otherwise sit there looking configured
+    // while matching nothing.
+    final rules = HangRules(ignoreMarker: '  no-hang-check  ');
+    expect(rules.ignoreMarker, defaultIgnoreMarker);
+    expect(
+      scan(
+        "await audioPlayer.dispose(); // no-hang-check: fake player",
+        rules,
+      ),
+      isEmpty,
+    );
+  });
+
   test('defaults are what the constructor falls back to', () {
     final rules = HangRules();
     expect(rules.teardownReceivers, defaultTeardownReceivers);
